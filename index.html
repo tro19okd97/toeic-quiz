@@ -1045,38 +1045,83 @@ function backToSelect() {
 function renderDashboard() {
   const p = loadProgress();
   const n = p.correct_word_ids.length;
-  const pct = Math.min((n / TOTAL_WORDS) * 100, 100);
+  const totalPct = Math.min((n / TOTAL_WORDS) * 100, 100);
   document.getElementById("dash-count").textContent = `${n.toLocaleString()} / ${TOTAL_WORDS.toLocaleString()} 語`;
-  document.getElementById("dash-bar").style.width = pct + "%";
-  document.getElementById("dash-pct").textContent = pct.toFixed(1) + "%";
+  document.getElementById("dash-bar").style.width = totalPct + "%";
+  document.getElementById("dash-pct").textContent = totalPct.toFixed(1) + "%";
 
   const lp = document.getElementById("level-progress");
   lp.innerHTML = "";
-  let cleared = 0, totalBest = 0, attempted = 0;
+  let clearedLevels = 0, totalBest = 0, attempted = 0;
+
   for (let lv = 1; lv <= 5; lv++) {
-    const cfg = LEVEL_CONFIG[lv], stat = p.level_stats[`level_${lv}`];
-    const best = stat.highest_score_percent;
-    if (best > 0) { totalBest += best; attempted++; }
-    if (stat.is_cleared) cleared++;
+    const cfg = LEVEL_CONFIG[lv];
+    const sets = getSets(lv);
+    const numSets = sets.length;
+
+    // set_stats からこのレベルの各セット情報を収集
+    let bestScore = 0;
+    let clearedSets = 0;
+    let attemptedSets = 0;
+    for (let si = 0; si < numSets; si++) {
+      const sk = setKey(lv, si);
+      const stat = p.set_stats[sk];
+      if (stat) {
+        attemptedSets++;
+        if (stat.score > bestScore) bestScore = stat.score;
+        if (stat.cleared) clearedSets++;
+      }
+    }
+
+    // 習得単語数（このレベルの正解単語）
+    const learnedWords = p.correct_word_ids.filter(id => id.startsWith(`w_l${lv}_`)).length;
+    const wordsTotal = cfg.words;
+    const wordsPct = Math.min((learnedWords / wordsTotal) * 100, 100);
+
+    // レベルクリア = 全セットクリア済み
+    const isLevelCleared = numSets > 0 && clearedSets === numSets;
+    const isInProgress = attemptedSets > 0;
+
+    if (isInProgress) { totalBest += bestScore; attempted++; }
+    if (isLevelCleared) clearedLevels++;
+
     let sc = "not-started", st = "未挑戦";
-    if (stat.is_cleared) { sc = "cleared"; st = "クリア"; }
-    else if (best > 0) { sc = "progress"; st = "挑戦中"; }
+    if (isLevelCleared) { sc = "cleared"; st = "クリア"; }
+    else if (isInProgress) { sc = "progress"; st = "挑戦中"; }
+
     const row = document.createElement("div");
     row.className = "level-row";
     row.innerHTML = `
       <span class="lname" style="color:${cfg.color}">${cfg.name}</span>
-      <div class="lbar-wrap"><div class="lbar-fill" style="width:${best}%;background:${cfg.color}"></div></div>
-      <span class="lscore" style="color:${cfg.color}">${best > 0 ? formatPct(best) : '---'}</span>
+      <div class="lbar-wrap" style="position:relative;">
+        <div class="lbar-fill" style="width:${wordsPct}%;background:${cfg.color}"></div>
+      </div>
+      <span class="lscore" style="color:${cfg.color}">${learnedWords}/${wordsTotal}語</span>
       <span class="lstatus ${sc}">${st}</span>`;
     lp.appendChild(row);
+
+    // セット別スコア小計行
+    if (isInProgress) {
+      const detail = document.createElement("div");
+      detail.style.cssText = "padding:4px 0 8px 80px; font-size:12px; color:var(--muted); display:flex; gap:8px; flex-wrap:wrap;";
+      for (let si = 0; si < numSets; si++) {
+        const sk = setKey(lv, si);
+        const stat = p.set_stats[sk];
+        const chip = document.createElement("span");
+        chip.style.cssText = `padding:2px 8px; border-radius:12px; font-weight:700; background:${stat?.cleared ? '#dcfce7' : stat ? '#fef9c3' : '#f1f5f9'}; color:${stat?.cleared ? 'var(--success)' : stat ? 'var(--warn)' : 'var(--muted)'};`;
+        chip.textContent = `S${si+1}${stat ? ' ' + stat.score + '%' : ''}`;
+        detail.appendChild(chip);
+      }
+      lp.appendChild(detail);
+    }
   }
 
   const avg = attempted > 0 ? Math.round(totalBest / attempted) : 0;
   document.getElementById("stat-grid").innerHTML = [
-    { val: cleared + "/5", label: "クリア済みレベル" },
+    { val: clearedLevels + "/5", label: "クリア済みレベル" },
     { val: avg > 0 ? formatPct(avg) : "---", label: "平均スコア" },
     { val: n.toLocaleString(), label: "習得単語数" },
-    { val: pct.toFixed(1) + "%", label: "全体進捗" },
+    { val: totalPct.toFixed(1) + "%", label: "全体進捗" },
   ].map(s => `<div class="stat-card"><div class="stat-val">${s.val}</div><div class="stat-label">${s.label}</div></div>`).join("");
 }
 
